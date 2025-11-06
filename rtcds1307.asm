@@ -24,16 +24,24 @@ ds1307GetDateTime:
 	ldi	r23,RTCADR
 	call	i2cReadRegister
 	ret
+
 ; Setting the RTC time to 58 minutes, 11 seconds
 setDS1307:
 	ldi		r23,RTCADR
 	ldi		r25,CONTROL_REGISTER
 	ldi		r22,0x00
 	call	i2cWriteRegister
+
+  ldi   r23,RTCADR
+  ldi   r25,HOURS_REGISTER
+  ldi   r22,0x10
+  call  i2cWriteRegister
+
 	ldi		r23,RTCADR
 	ldi		r25,MINUTES_REGISTER
 	ldi		r22,0x58
 	call	i2cWriteRegister
+
 	ldi		r23,RTCADR
 	ldi		r25,SECONDS_REGISTER
 	ldi		r22,0x11
