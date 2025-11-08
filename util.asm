@@ -53,3 +53,29 @@ low_lower:
 low_upper:
   add r18,r16
 ret
+
+; Converts unsigned integer value of r17:r16 to ASCII string tascii[5]
+itoa_short:
+           ldi zl,low(dectab*2) ; pointer to 10^x power compare value
+           ldi zh,high(dectab*2)
+           ldi xl,low(tascii) ; pointer to array to store string
+           ldi xh,high(tascii)
+itoa_lext:
+          ldi r18,'0'-1 ; (ASCII 0) -1
+          lpm r2,z+ ; load 10^x word, point to next
+          lpm r3,z+
+itoa_lint:
+          inc r18 ; start with '0' ASCII
+          sub r16,r2 ; (## - 10^x
+          sbc r17,r3
+          brsh itoa_lint
+          add r16,r2 ; if negative reconstruct
+          adc r17,r3
+          st x+,r18 ; save 1/10^x count, point to next location to save
+          lpm ; read last ZX pointed at from 10^x table in (r0)
+          tst r0 ; LAST WORD YET?=0x00
+          brne itoa_lext
+ret
+dectab: .dw 10000,1000,100,10,1,0
+
+; put it in ram

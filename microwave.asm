@@ -45,6 +45,7 @@ joyy: .byte 1 ; Raw joystick y-axis
 joys: .byte 1 ; Joystick status bits 0-not centred,1- centred
 seconds: .byte 2 ; Cook time in seconds 16-bit
 sec1: .byte 1 ; minor tick time (100 ms)
+tascii:  .byte 8;
 ;---------------------------------------------------------
 ;                       C O D E
 ;---------------------------------------------------------
@@ -55,8 +56,11 @@ jmp start
 
 .org 0xF6
 
-stmsg:   .db  "Current State at: ",0,0
-joymsg:		.db " Joystick X:Y ",0,0
+cmsg1: .db " Time: ",0,0
+cmsg2: .db " Cook Time: ",0,0
+cmsg3: .db " State: ",0,0
+joymsg: .db " Joystick X:Y ",0,0
+
 ;---------------------------------------------------------
 ;              .asm include statements
 ;---------------------------------------------------------
@@ -77,8 +81,7 @@ start:
   call initADC
   call initI2C
   call initDS1307
-  call setDS1307
-
+  jmp startstate
 
 ;---------------------------------------------------------
 ;                LOOP
@@ -86,8 +89,6 @@ start:
 loop:
 call updateTick ; Check the time
 call joystickInputs
-
-
 
 ; Check the inputs here
 ; If Door Open jump to suspend
@@ -128,6 +129,13 @@ jmp loop
 startstate: ; start state tasks
 ldi r24,STARTS ; Start state
 sts cstate,r24
+
+ldi     r16, 10        ; low byte of 16-bit seconds
+sts     seconds, r16
+ldi     r16, 0         ; high byte = 0
+sts  seconds+1, r16
+call setDS1307
+
 jmp loop
 
 	jmp	loop
@@ -171,13 +179,14 @@ brne ut2
 ldi r22,0 ; Reset minor tick
 sts sec1,r22 ; Do 1 second interval tasks
 
+call displayTOD
+call displayCookTime
 call displayState
 
 ut2: lds r22,sec1
 inc r22
 sts sec1,r22
 call delay100ms
-
 
 ret
 
@@ -191,42 +200,15 @@ displayState:
 ;                Display the current state
 ;---------------------------------------------------------
     ldi r16,1                 ; String in program memory
-    ldi ZH,high(stmsg<<1)     ; Load address of stmsg
-    ldi ZL,low(stmsg<<1)
+    ldi ZH,high(cmsg3<<1)     ; Load address of stmsg
+    ldi ZL,low(cmsg3<<1)
     call putsUSART0           ; Print "current state at: "
-
-;=========================================================
-;                  MINUTES and SECONDS
-;=========================================================
-    ldi  r25, MINUTES_REGISTER
-    call ds1307GetDateTime
-    mov  r17, r24
-    call pBCDToASCII
-    mov  r16, r17
-    call putchUSART0
-    mov  r16, r18
-    call putchUSART0
-
-    ldi  r16, ':'
-    call putchUSART0
-
-
-    ldi  r25, SECONDS_REGISTER
-    call ds1307GetDateTime
-    mov  r17, r24
-    call pBCDToASCII
-    mov  r16, r17
-    call putchUSART0
-    mov  r16, r18
-    call putchUSART0
-
-    ldi r16, '-'
-    call putchUSART0
 
     lds r17,cstate            ; Load current state value
     call byteToHexASCII       ; Convert to ASCII
     mov r16,r17               ; Lower nibble
     call putchUSART0
+
 ;---------------------------------------------------------
 ;               Display the joystick
 ;---------------------------------------------------------
@@ -251,6 +233,73 @@ displayState:
     call putchUSART0
     mov r16,r17
     call putchUSART0
+
+    ret
+
+displayTOD:
+
+    ldi r16,1                 ; String in program memory
+    ldi ZH,high(cmsg2<<1)     ; Load address of stmsg
+    ldi ZL,low(cmsg2<<1)
+    call putsUSART0
+
+    ldi  r25, HOURS_REGISTER
+    call ds1307GetDateTime
+    mov  r17, r24
+    call pBCDToASCII
+    mov  r16, r17
+    call putchUSART0
+    mov  r16, r18
+    call putchUSART0
+
+    ldi  r16, ':'
+    call putchUSART0
+
+    ldi  r25, MINUTES_REGISTER
+    call ds1307GetDateTime
+    mov  r17, r24
+    call pBCDToASCII
+    mov  r16, r17
+    call putchUSART0
+    mov  r16, r18
+    call putchUSART0
+
+    ldi  r16, ':'
+    call putchUSART0
+
+
+    ldi  r25, SECONDS_REGISTER
+    call ds1307GetDateTime
+    mov  r17, r24
+    call pBCDToASCII
+    mov  r16, r17
+    call putchUSART0
+    mov  r16, r18
+    call putchUSART0
+
+    ret
+
+displayCookTime:
+
+    ldi r16,1                 ; String in program memory
+    ldi ZH,high(cmsg1<<1)     ; Load address of stmsg
+    ldi ZL,low(cmsg1<<1)
+    call putsUSART0
+
+    lds r16, seconds
+    lds r17, seconds+1
+    call itoa_short
+
+    ldi r18, 0
+    sts tascii+5, r18
+    sts tascii+6, r18
+    sts tascii+7, r18
+
+    ldi zl, low(tascii)
+    ldi zh, high(tascii)
+
+    ldi r16, 0
+    call putsUSART0
 
     ret
 
