@@ -64,13 +64,16 @@ joymsg: .db " Joystick X:Y ",0,0
 ;---------------------------------------------------------
 ;              .asm include statements
 ;---------------------------------------------------------
+
 .include "iopins.asm"
 .include "util.asm"
 .include "serialio.asm"
 .include "adc.asm"
 .include "i2c.asm"
 .include "rtcds1307.asm"
+
 start:
+
   ldi	r16,HIGH(RAMEND)	; Initialize the stack pointer
   out	sph,r16
   ldi r16,LOW(RAMEND)
@@ -87,58 +90,58 @@ start:
 ;                LOOP
 ;---------------------------------------------------------
 loop:
-call updateTick ; Check the time
-call joystickInputs
+  call updateTick ; Check the time
+  call joystickInputs
 
 ; Check the inputs here
 ; If Door Open jump to suspend
-sbis PIND,DOOR
-jmp suspend
+  sbis PIND,DOOR
+  jmp suspend
 
 ; Cancel Key Pressed
-sbis PIND,CANCEL
-jmp dataentry
+  sbis PIND,CANCEL
+  jmp dataentry
 
 ; Start Stop Key Pressed
-sbic PIND,STSP
-jmp cook
+  sbic PIND,STSP
+  jmp cook
 
 ; State Actions Code
 
-idle: ldi r24,IDLES ; Set state variable to Idle
-sts cstate,r24 ; Do idle state tasks
+idle:
+  ldi r24,IDLES ; Set state variable to Idle
+  sts cstate,r24 ; Do idle state tasks
 jmp loop
 
 ; Cook State
-cook: ldi r24,COOKS ; Set state variable to Cook
-sts cstate,r24 ; Do cook state tasks
+cook:
+  ldi r24,COOKS ; Set state variable to Cook
+  sts cstate,r24 ; Do cook state tasks
 jmp loop
 
 ; Suspend State
 suspend: ; suspend state tasks
-ldi r24,SUSPENDS ; Set state variable to Suspend
-sts cstate,r24 ; Do suspend state tasks
+  ldi r24,SUSPENDS ; Set state variable to Suspend
+  sts cstate,r24 ; Do suspend state tasks
 jmp loop
 
 ; Data Entry State
 dataentry: ; data entry state tasks
-ldi r24,DATAS ; Set state variable to Suspend when done
-sts cstate,r24
+  ldi r24,DATAS ; Set state variable to Suspend when done
+  sts cstate,r24
 jmp loop
 
 startstate: ; start state tasks
-ldi r24,STARTS ; Start state
-sts cstate,r24
+  ldi r24,STARTS ; Start state
+  sts cstate,r24
 
-ldi     r16, 10        ; low byte of 16-bit seconds
-sts     seconds, r16
-ldi     r16, 0         ; high byte = 0
-sts  seconds+1, r16
+  ldi r16, 10        ; low byte of 16-bit seconds
+  sts seconds, r16
+  ldi r16, 0         ; high byte = 0
+  sts seconds+1, r16
 call setDS1307
 
 jmp loop
-
-	jmp	loop
 
 joystickInputs:
 	ldi	r24,0x00		; Read ch 0 Joystick Y
@@ -172,22 +175,46 @@ ret
 ;---------------------------------------------------------
 ;                        Time Tasks
 ;---------------------------------------------------------
-updateTick: ; Time tasks
-lds r22,sec1 ; Get minor tick time
-cpi r22,10 ; 10 delays of 100 ms done?
-brne ut2
-ldi r22,0 ; Reset minor tick
-sts sec1,r22 ; Do 1 second interval tasks
+updateTick:
+  call delay100ms
+  lds r22,sec1 ; Get minor tick time
+  cpi r22,10 ; 10 delays of 100 ms done?
+  brne ut2
 
-call displayTOD
-call displayCookTime
-call displayState
+  ldi r22,0 ; Reset minor tick
+  sts sec1,r22 ; Do 1 second interval tasks
 
-ut2: lds r22,sec1
-inc r22
-sts sec1,r22
-call delay100ms
+   ; (2) Check state
+    lds r24,cstate
+    cpi r24,COOKS
+    brne ut_display           ; if not COOKS, skip countdown
 
+    ; (3) Load 16-bit seconds
+    lds r16,seconds
+    lds r17,seconds+1
+
+    ; check if seconds == 0
+    or  r16,r17
+    breq ut_idle              ; if 0, jump to idle
+
+    ; otherwise decrement
+    subi r16,1
+    sbci r17,0
+    sts seconds,r16
+    sts seconds+1,r17
+
+    jmp ut_display           ; fall through to display
+
+ut_idle:
+    jmp idle                 ; go to idle state
+
+ut_display:
+    call displayState         ; show updated info
+
+ut2:
+  lds r22,sec1
+  inc r22
+  sts sec1,r22
 ret
 
 
@@ -199,6 +226,19 @@ displayState:
 ;---------------------------------------------------------
 ;                Display the current state
 ;---------------------------------------------------------
+    ldi r16,1                 ; String in program memory
+    ldi ZH,high(cmsg1<<1)     ; Load address of stmsg
+    ldi ZL,low(cmsg1<<1)
+    call putsUSART0
+    call displayTOD
+
+
+    ldi r16,1                 ; String in program memory
+    ldi ZH,high(cmsg2<<1)     ; Load address of stmsg
+    ldi ZL,low(cmsg2<<1)
+    call putsUSART0
+    call displayCookTime
+
     ldi r16,1                 ; String in program memory
     ldi ZH,high(cmsg3<<1)     ; Load address of stmsg
     ldi ZL,low(cmsg3<<1)
@@ -238,11 +278,6 @@ displayState:
 
 displayTOD:
 
-    ldi r16,1                 ; String in program memory
-    ldi ZH,high(cmsg2<<1)     ; Load address of stmsg
-    ldi ZL,low(cmsg2<<1)
-    call putsUSART0
-
     ldi  r25, HOURS_REGISTER
     call ds1307GetDateTime
     mov  r17, r24
@@ -281,10 +316,6 @@ displayTOD:
 
 displayCookTime:
 
-    ldi r16,1                 ; String in program memory
-    ldi ZH,high(cmsg1<<1)     ; Load address of stmsg
-    ldi ZL,low(cmsg1<<1)
-    call putsUSART0
 
     lds r16, seconds
     lds r17, seconds+1
