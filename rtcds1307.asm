@@ -34,7 +34,7 @@ setDS1307:
 
   ldi   r23,RTCADR
   ldi   r25,HOURS_REGISTER
-  ldi   r22,0x10
+  ldi   r22,0x16
   call  i2cWriteRegister
 
 	ldi		r23,RTCADR

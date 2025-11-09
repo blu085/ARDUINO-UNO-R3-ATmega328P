@@ -1,7 +1,8 @@
+;---------------------------------------------------------
 ; microwave.asm
 ;
 ; Author : HuyB
-;
+;---------------------------------------------------------
 
 ; Device constants
 .nolist
@@ -56,7 +57,7 @@ jmp start
 
 .org 0xF6
 
-cmsg1: .db " Time: ",0,0
+cmsg1: .db " Time: ",0
 cmsg2: .db " Cook Time: ",0,0
 cmsg3: .db " State: ",0,0
 joymsg: .db " Joystick X:Y ",0,0
@@ -86,62 +87,84 @@ start:
   call initDS1307
   jmp startstate
 
+
 ;---------------------------------------------------------
 ;                LOOP
 ;---------------------------------------------------------
 loop:
-  call updateTick ; Check the time
+  call updateTick
   call joystickInputs
 
-; Check the inputs here
-; If Door Open jump to suspend
+;---------------------------------------------------------
+; 1. Door Open → jump to suspend
+;---------------------------------------------------------
   sbis PIND,DOOR
   jmp suspend
 
-; Cancel Key Pressed
+;---------------------------------------------------------
+; 2. Cancel Key Pressed → jump to idle
+;---------------------------------------------------------
   sbis PIND,CANCEL
-  jmp dataentry
+  jmp idle
 
-; Start Stop Key Pressed
-  sbic PIND,STSP
-  jmp cook
+;---------------------------------------------------------
+; 3. Start/Stop Key logic
+;---------------------------------------------------------
+  lds  r24, cstate          ; Load current state
 
-; State Actions Code
+  sbic PIND,STSP            ; Skip next if not pressed
+  jmp loop                 ; If not pressed → loop
 
+;---------------------------------------------------------
+; 4. Start/Stop pressed → decide next state
+;---------------------------------------------------------
+  cpi  r24, COOKS
+  breq suspend              ; (a) if currently cooking → suspend
+
+  cpi  r24, IDLES
+  breq cook                 ; (b) if idle → start cooking
+  cpi  r24, SUSPENDS
+  breq cook                 ;     if suspended → start cooking
+  cpi  r24, STARTS
+  breq cook                 ;     if starting → start cooking
+
+  jmp loop                 ; (c) otherwise → loop
+
+
+;---------------------------------------------------------
+;                State Actions Code
+;---------------------------------------------------------
 idle:
-  ldi r24,IDLES ; Set state variable to Idle
-  sts cstate,r24 ; Do idle state tasks
-jmp loop
+  ldi r24, IDLES
+  sts cstate, r24
+  jmp loop
 
-; Cook State
 cook:
-  ldi r24,COOKS ; Set state variable to Cook
-  sts cstate,r24 ; Do cook state tasks
-jmp loop
+  ldi r24, COOKS
+  sts cstate, r24
+  jmp loop
 
-; Suspend State
-suspend: ; suspend state tasks
-  ldi r24,SUSPENDS ; Set state variable to Suspend
-  sts cstate,r24 ; Do suspend state tasks
-jmp loop
+suspend:
+  ldi r24, SUSPENDS
+  sts cstate, r24
+  jmp loop
 
-; Data Entry State
-dataentry: ; data entry state tasks
-  ldi r24,DATAS ; Set state variable to Suspend when done
-  sts cstate,r24
-jmp loop
+dataentry:
+  ldi r24, DATAS
+  sts cstate, r24
+  jmp loop
 
-startstate: ; start state tasks
-  ldi r24,STARTS ; Start state
-  sts cstate,r24
+startstate:
+  ldi r24, STARTS
+  sts cstate, r24
 
-  ldi r16, 10        ; low byte of 16-bit seconds
+  ldi r16, 10          ; low byte of 16-bit seconds
   sts seconds, r16
-  ldi r16, 0         ; high byte = 0
+  ldi r16, 0           ; high byte = 0
   sts seconds+1, r16
-call setDS1307
+  call setDS1307
 
-jmp loop
+  jmp loop
 
 joystickInputs:
 	ldi	r24,0x00		; Read ch 0 Joystick Y
@@ -193,7 +216,7 @@ updateTick:
     lds r16,seconds
     lds r17,seconds+1
 
-    ; check if seconds == 0
+    ; check if seconds = 0
     or  r16,r17
     breq ut_idle              ; if 0, jump to idle
 
@@ -226,27 +249,27 @@ displayState:
 ;---------------------------------------------------------
 ;                Display the current state
 ;---------------------------------------------------------
-    ldi r16,1                 ; String in program memory
-    ldi ZH,high(cmsg1<<1)     ; Load address of stmsg
+    ldi r16,1
+    ldi ZH,high(cmsg1<<1)
     ldi ZL,low(cmsg1<<1)
     call putsUSART0
     call displayTOD
 
 
-    ldi r16,1                 ; String in program memory
-    ldi ZH,high(cmsg2<<1)     ; Load address of stmsg
+    ldi r16,1
+    ldi ZH,high(cmsg2<<1)
     ldi ZL,low(cmsg2<<1)
     call putsUSART0
     call displayCookTime
 
-    ldi r16,1                 ; String in program memory
-    ldi ZH,high(cmsg3<<1)     ; Load address of stmsg
+    ldi r16,1
+    ldi ZH,high(cmsg3<<1)
     ldi ZL,low(cmsg3<<1)
-    call putsUSART0           ; Print "current state at: "
+    call putsUSART0
 
-    lds r17,cstate            ; Load current state value
-    call byteToHexASCII       ; Convert to ASCII
-    mov r16,r17               ; Lower nibble
+    lds r17,cstate
+    call byteToHexASCII
+    mov r16,r17
     call putchUSART0
 
 ;---------------------------------------------------------
