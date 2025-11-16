@@ -93,7 +93,6 @@ start:
 ;---------------------------------------------------------
 loop:
   call updateTick
-  call joystickInputs
 
 ;---------------------------------------------------------
 ; 1. Door Open → jump to suspend
@@ -111,9 +110,8 @@ loop:
 ; 3. Start/Stop Key logic
 ;---------------------------------------------------------
   lds  r24, cstate          ; Load current state
-
-  sbic PIND,STSP            ; Skip next if not pressed
-  jmp loop                 ; If not pressed → loop
+  sbic PIND, STSP
+  jmp joy0
 
 ;---------------------------------------------------------
 ; 4. Start/Stop pressed → decide next state
@@ -131,26 +129,96 @@ loop:
   jmp loop                 ; (c) otherwise → loop
 
 
+joy0:
+  call joystickInputs
+  lds r24, cstate
+  cpi r24, COOKS
+  breq loop
+  lds r25, joys
+  cpi r25, 1
+  breq loop
+  jmp dataentry
+
 ;---------------------------------------------------------
 ;                State Actions Code
 ;---------------------------------------------------------
 idle:
+
   ldi r24, IDLES
   sts cstate, r24
-  jmp loop
+
+  ldi r16,0
+  out OCR0A, r16
+
+  cbi PORTB, HEATER
+  cbi PORTD, LIGHT
+
+  ldi r16,0
+  sts seconds, r16
+  sts seconds+1, r16
+
+
+jmp loop
 
 cook:
+
   ldi r24, COOKS
   sts cstate, r24
+
+  ldi r16, 0x23
+  out OCR0A, r16
+
+  sbi PORTB, HEATER
+  cbi PORTD, LIGHT
+
   jmp loop
 
 suspend:
   ldi r24, SUSPENDS
   sts cstate, r24
+
+  ldi r16, 0
+  out OCR0A, r16
+
+  cbi PORTB, HEATER
+  sbi PORTD, LIGHT
+
   jmp loop
 
 dataentry:
-  ldi r24, DATAS
+
+  ldi	r24,DATAS			; Set state variable to Data Entry
+	sts	cstate,r24
+
+  cbi PORTB, HEATER
+  cbi PORTD, LIGHT
+
+
+
+	lds	r26,seconds			; Get current cook time
+	lds	r27,seconds+1
+	lds	r21,joyx
+	cpi	r21,135				; Check for time increment
+	brsh	de1
+	cpi	r27,0				; Check upper byte for 0
+	brne	de0
+	cpi	r26,0				; Check lower byte for 0
+	breq	de2
+de0:
+	sbiw	r27:r26,10			; Decrement cook time by 10 seconds
+	jmp	de2
+de1:
+	adiw	r27:r26,10			; Increment cook time by 10 seconds
+de2:
+	sts	seconds,r26			; Store time
+	sts	seconds+1,r27
+	call	displayState
+	call	delay1s
+	call	joystickInputs
+	lds	r21,joys
+	cpi	r21,0
+	breq	dataentry			; Do data entry until joystick centred
+	ldi r24, SUSPENDS
   sts cstate, r24
   jmp loop
 
@@ -158,10 +226,14 @@ startstate:
   ldi r24, STARTS
   sts cstate, r24
 
-  ldi r16, 10          ; low byte of 16-bit seconds
+  ; reset seconds and minor tick, turn off heater & light
+  ldi r16, 0
+  sts sec1, r16
   sts seconds, r16
-  ldi r16, 0           ; high byte = 0
   sts seconds+1, r16
+  cbi PORTB, HEATER
+  cbi PORTD, LIGHT
+
   call setDS1307
 
   jmp loop
@@ -198,8 +270,10 @@ ret
 ;---------------------------------------------------------
 ;                        Time Tasks
 ;---------------------------------------------------------
+
 updateTick:
   call delay100ms
+  cbi PORTD, BEEPER
   lds r22,sec1 ; Get minor tick time
   cpi r22,10 ; 10 delays of 100 ms done?
   brne ut2
@@ -275,6 +349,7 @@ displayState:
 ;---------------------------------------------------------
 ;               Display the joystick
 ;---------------------------------------------------------
+
     ldi r16,1
     ldi ZH,high(joymsg<<1)
     ldi ZL,low(joymsg<<1)
@@ -296,6 +371,7 @@ displayState:
     call putchUSART0
     mov r16,r17
     call putchUSART0
+
 
     ret
 
@@ -338,7 +414,6 @@ displayTOD:
     ret
 
 displayCookTime:
-
 
     lds r16, seconds
     lds r17, seconds+1

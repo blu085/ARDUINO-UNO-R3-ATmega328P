@@ -1,9 +1,8 @@
-;
+;---------------------------------------------------------
 ; util.asm
 ;
 ;   Author: HuyB
-;
-
+;---------------------------------------------------------
 ; 100 ms Delay
 delay100ms:
 	ldi	r18, 0xFF	; 255
@@ -16,9 +15,11 @@ d100:
 	brne	d100
 	ret
 
+;---------------------------------------------------------
 ; Packed BCD To ASCII
 ; Number to convert in r17
 ; Converted output in r17 (upper nibble),r18 (lower nibble)
+;---------------------------------------------------------
 pBCDToASCII:
 
   mov r18,r17
@@ -29,10 +30,11 @@ pBCDToASCII:
   andi r17,0x0f
   ori r17,0x30
 ret
-
+;---------------------------------------------------------
 ; Byte To Hexadecimal ASCII
 ; Number to convert in r17
 ; Converted output in r17 (lowernibble),r18 (upper nibble)
+;---------------------------------------------------------
 byteToHexASCII:
 
   mov r18,r17
@@ -53,8 +55,9 @@ low_lower:
 low_upper:
   add r18,r16
 ret
-
+;---------------------------------------------------------
 ; Converts unsigned integer value of r17:r16 to ASCII string tascii[5]
+;---------------------------------------------------------
 itoa_short:
            ldi zl,low(dectab*2) ; pointer to 10^x power compare value
            ldi zh,high(dectab*2)
@@ -78,4 +81,18 @@ itoa_lint:
 ret
 dectab: .dw 10000,1000,100,10,1,0
 
-; put it in ram
+; 1 Second Delay
+delay1s:
+	ldi		r20,64
+d1:	ldi		r21,200
+d2:	ldi		r22,250
+d3:	nop
+	nop
+	dec		r22
+	brne	d3
+	dec		r21
+	brne	d2
+	dec		r20
+	brne	d1
+	ret
+
