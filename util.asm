@@ -3,6 +3,17 @@
 ;
 ;   Author: HuyB
 ;---------------------------------------------------------
+
+.def ANSL = R0		;To hold low-byte of answer
+.def ANSH = R1		;To hold high-byte of answer
+.def REML = R2		;To hold low-byte of remainder
+.def REMH = R3		;To hold high-byte of remainder
+.def   AL = R16		;To hold low-byte of dividend
+.def   AH = R17		;To hold high-byte of dividend
+.def   BL = R18		;To hold low-byte of divisor
+.def   BH = R19		;To hold high-byte of divisor
+.def  C16 = R20		;Bit Counter
+
 ; 100 ms Delay
 delay100ms:
 	ldi	r18, 0xFF	; 255
@@ -95,4 +106,54 @@ d3:	nop
 	dec		r20
 	brne	d1
 	ret
+
+div1616:
+	movw	ANSH:ANSL,AH:AL	;Copy dividend into answer
+	ldi	C16,17		;Load bit counter
+	sub	REML,REML	;Clear Remainder and Carry
+	clr	REMH
+dloop:	rol	ANSL		;Shift the answer to the left
+	rol	ANSH
+	dec	C16		;Decrement Counter
+	breq	ddone		;Exit if sixteen bits done
+	rol	REML		;Shift remainder to the left
+	rol	REMH
+	sub	REML,BL		;Try to subtract divisor from remainder
+	sbc	REMH,BH
+	brcc	skip		;If the result was negative then
+	add	REML,BL		;reverse the subtraction to try again
+	adc	REMH,BH
+	clc			;Clear Carry Flag so zero shifted into A
+	rjmp	dloop		;Loop Back
+skip:	sec			;Set Carry Flag to be shifted into A
+	rjmp	dloop
+ddone:	ret
+
+; Divide two 8-bit numbers
+; r0 holds answer
+; r2 holds remainder
+; r16 holds dividend
+; r18 holds divisor
+; r20 Bit Counter
+div88:
+	ldi	r20,9	; Load bit counter
+	sub	r2,r2	; Clear remainder and Carry
+	mov	r0,r16	; Copy dividend to answer
+loopd8:
+	rol	r0	; Shift answer to left
+	dec	r20	; Decrement counter
+	breq	doned8	; Exit if eight bits done
+	rol	r2	; Shift remainder to the left
+	sub	r2,r18	; Try to subtract the divsor from remainder
+	brcc	skipd8	; If result was negative then
+	add	r2,r18	; reverse subtraction to try again
+	clc		; Clear Carry flag so zero shifted into A
+	rjmp	loopd8
+skipd8:
+	sec		; Set Carry flag to be shifted into A
+	rjmp	loopd8
+doned8:
+	ret
+
+
 

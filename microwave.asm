@@ -72,7 +72,7 @@ joymsg: .db " Joystick X:Y ",0,0
 .include "adc.asm"
 .include "i2c.asm"
 .include "rtcds1307.asm"
-
+.include "andisplay.asm"
 start:
 
   ldi	r16,HIGH(RAMEND)	; Initialize the stack pointer
@@ -85,6 +85,7 @@ start:
   call initADC
   call initI2C
   call initDS1307
+  call initAN
   jmp startstate
 
 
@@ -128,48 +129,65 @@ loop:
 
   jmp loop                 ; (c) otherwise → loop
 
-
 joy0:
-  call joystickInputs
-  lds r24, cstate
-  cpi r24, COOKS
-  breq loop
-  lds r25, joys
-  cpi r25, 1
-  breq loop
-  jmp dataentry
+    call joystickInputs
+    lds r24, cstate       ; Get current state
+    cpi r24, COOKS        ; Are we cooking?
+    breq loop             ; Yes, ignore joystick during cooking
+    lds r25, joys         ; Check if joystick centered
+    cpi r25, 1
+    breq loop             ; Centered, do nothing
+    jmp dataentry         ; Not centered, go to data entry
+
+startstate:
+    ldi r24, STARTS
+    sts cstate, r24
+
+    ; set RTC time
+    call setDS1307
+
+    ; reset sec1 and seconds to 0
+    ldi r24, 0
+    sts sec1, r24
+    sts seconds, r24
+    sts seconds+1, r24
+
+    ; turn off HEATER and LIGHT
+    cbi PORTD, HEATER
+    cbi PORTD, LIGHT
+
+    jmp loop
 
 ;---------------------------------------------------------
 ;                State Actions Code
 ;---------------------------------------------------------
 idle:
-
   ldi r24, IDLES
   sts cstate, r24
-
-  ldi r16,0
-  out OCR0A, r16
 
   cbi PORTB, HEATER
   cbi PORTD, LIGHT
 
-  ldi r16,0
-  sts seconds, r16
-  sts seconds+1, r16
+  ; STOP VALUE (Neutral)
+  ldi r16, 0x17      ; Decimal 23 (approx 1.5ms pulse = STOP)
+  out OCR0A, r16      ; Sending Neutral signal stops continuous servos
 
+  ldi r24,0
+  sts seconds, r24
+  sts seconds+1, r24
 
 jmp loop
 
 cook:
-
   ldi r24, COOKS
   sts cstate, r24
 
-  ldi r16, 0x23
-  out OCR0A, r16
-
   sbi PORTB, HEATER
   cbi PORTD, LIGHT
+
+  ; RUN VALUE
+  ldi r16, 0x1E       ; Decimal 30 (approx 2.0ms pulse = FULL SPEED)
+  out OCR0A, r16
 
   jmp loop
 
@@ -177,38 +195,35 @@ suspend:
   ldi r24, SUSPENDS
   sts cstate, r24
 
-  ldi r16, 0
-  out OCR0A, r16
-
   cbi PORTB, HEATER
   sbi PORTD, LIGHT
+  ldi r16, 0x17       ; Decimal 23 (approx 1.5ms pulse = STOP)
+  out OCR0A, r16
 
   jmp loop
 
-dataentry:
-
-  ldi	r24,DATAS			; Set state variable to Data Entry
+dataentry:						; data entry state tasks
+	ldi	r24,DATAS			  ; Set state variable to Data Entry
 	sts	cstate,r24
-
-  cbi PORTB, HEATER
+  ; Turn off HEATER and LIGHT
+  cbi PORTD, HEATER
   cbi PORTD, LIGHT
-
-
-
+  ldi r16, 0
+    out OCR0A, r16
 	lds	r26,seconds			; Get current cook time
 	lds	r27,seconds+1
 	lds	r21,joyx
-	cpi	r21,135				; Check for time increment
+	cpi	r21,135			  	; Check for time increment
 	brsh	de1
-	cpi	r27,0				; Check upper byte for 0
+	cpi	r27,0				    ; Check upper byte for 0
 	brne	de0
-	cpi	r26,0				; Check lower byte for 0
+	cpi	r26,0				    ; Check lower byte for 0
 	breq	de2
 de0:
-	sbiw	r27:r26,10			; Decrement cook time by 10 seconds
+	sbiw	r26,10			; Decrement cook time by 10 seconds
 	jmp	de2
 de1:
-	adiw	r27:r26,10			; Increment cook time by 10 seconds
+	adiw	r26,10			; Increment cook time by 10 seconds
 de2:
 	sts	seconds,r26			; Store time
 	sts	seconds+1,r27
@@ -218,25 +233,10 @@ de2:
 	lds	r21,joys
 	cpi	r21,0
 	breq	dataentry			; Do data entry until joystick centred
-	ldi r24, SUSPENDS
-  sts cstate, r24
-  jmp loop
+	ldi	r24,SUSPENDS
+	sts	cstate,r24
+	jmp	loop
 
-startstate:
-  ldi r24, STARTS
-  sts cstate, r24
-
-  ; reset seconds and minor tick, turn off heater & light
-  ldi r16, 0
-  sts sec1, r16
-  sts seconds, r16
-  sts seconds+1, r16
-  cbi PORTB, HEATER
-  cbi PORTD, LIGHT
-
-  call setDS1307
-
-  jmp loop
 
 joystickInputs:
 	ldi	r24,0x00		; Read ch 0 Joystick Y
@@ -272,47 +272,35 @@ ret
 ;---------------------------------------------------------
 
 updateTick:
-  call delay100ms
-  cbi PORTD, BEEPER
-  lds r22,sec1 ; Get minor tick time
-  cpi r22,10 ; 10 delays of 100 ms done?
-  brne ut2
-
-  ldi r22,0 ; Reset minor tick
-  sts sec1,r22 ; Do 1 second interval tasks
-
-   ; (2) Check state
-    lds r24,cstate
-    cpi r24,COOKS
-    brne ut_display           ; if not COOKS, skip countdown
-
-    ; (3) Load 16-bit seconds
-    lds r16,seconds
-    lds r17,seconds+1
-
-    ; check if seconds = 0
-    or  r16,r17
-    breq ut_idle              ; if 0, jump to idle
-
-    ; otherwise decrement
-    subi r16,1
-    sbci r17,0
-    sts seconds,r16
-    sts seconds+1,r17
-
-    jmp ut_display           ; fall through to display
-
-ut_idle:
-    jmp idle                 ; go to idle state
-
-ut_display:
-    call displayState         ; show updated info
-
+    call delay100ms
+    cbi PORTD, BEEPER     ; Turn off beeper
+    lds r22, sec1         ; Get minor tick time
+    cpi r22, 10           ; 10 delays of 100 ms done?
+    brne ut2
+    ldi r22, 0            ; Reset minor tick
+    sts sec1, r22         ; Do 1 second interval tasks
+    lds r23, cstate       ; Get current state
+    cpi r23, COOKS
+    brne ut1
+    lds r26, seconds      ; Get current cook time
+    lds r27, seconds+1
+    inc r26
+    sbiw r26, 1           ; Decrement cook time by 1 second
+    brne ut3
+    jmp idle
+ut3:
+    sbiw r26, 1           ; Decrement/store cook time
+    sts seconds, r26
+    sts seconds+1, r27
+ut1:
+    call displayState
 ut2:
-  lds r22,sec1
-  inc r22
-  sts sec1,r22
-ret
+    lds r22, sec1
+    inc r22
+    sts sec1, r22
+    ret
+
+
 
 
 ;---------------------------------------------------------
@@ -376,7 +364,6 @@ displayState:
     ret
 
 displayTOD:
-
     ldi  r25, HOURS_REGISTER
     call ds1307GetDateTime
     mov  r17, r24
@@ -401,7 +388,6 @@ displayTOD:
     ldi  r16, ':'
     call putchUSART0
 
-
     ldi  r25, SECONDS_REGISTER
     call ds1307GetDateTime
     mov  r17, r24
@@ -411,6 +397,47 @@ displayTOD:
     mov  r16, r18
     call putchUSART0
 
+    lds r24, cstate
+    cpi r24, COOKS
+    breq no_an_tod
+    cpi r24, SUSPENDS
+    breq no_an_tod
+    cpi r24, DATAS
+    breq no_an_tod
+
+    ; Display Hours
+    ldi r25, HOURS_REGISTER
+    call ds1307GetDateTime
+    mov r17, r24
+    call pBCDToASCII    ; r17=upper, r18=lower
+
+    push r18
+
+    mov r16, r17
+    ldi r17, 0          ; Digit 0
+    call anWriteDigit
+
+    pop r16             ; FIX: Restore Lower Digit into r16 for printing
+    ldi r17, 1          ; Digit 1
+    call anWriteDigit
+
+    ; Display Minutes
+    ldi r25, MINUTES_REGISTER
+    call ds1307GetDateTime
+    mov r17, r24
+    call pBCDToASCII
+
+    push r18            ; FIX: Save r18
+
+    mov r16, r17
+    ldi r17, 2          ; Digit 2
+    call anWriteDigit
+
+    pop r16
+    ldi r17, 3          ; Digit 3
+    call anWriteDigit
+
+no_an_tod:
     ret
 
 displayCookTime:
@@ -430,5 +457,47 @@ displayCookTime:
     ldi r16, 0
     call putsUSART0
 
-    ret
+    lds r24, cstate
+    cpi r24, COOKS
+    breq do_an_cook
+    cpi r24, SUSPENDS
+    breq do_an_cook
+    cpi r24, DATAS
+    breq do_an_cook
+    ret                   ; Return if NOT in Cook, Suspend, or Data
 
+do_an_cook:
+    lds r16,seconds       ; Get current timer seconds
+    lds r17,seconds+1
+    ldi r18,60            ; 16-bit Divide by 60 seconds to get mm:ss
+    ldi r19,0             ; answer = mm, remainder = ss
+    call div1616
+    mov r4,r0             ; Save mm in r4
+    mov r5,r2             ; Save ss in r5
+
+    ; Display Minutes (Digits 0 and 1)
+    mov r16,r4            ; Divide minutes by 10
+    ldi r18,10
+    call div88
+    ldi r16,'0'           ; Convert to ASCII
+    add r16,r0            ; Division answer is 10's minutes
+    ldi r17,0
+    call anWriteDigit     ; Write 10's minutes digit
+    ldi r16,'0'           ; Convert ASCII
+    add r16,r2            ; Division remainder is 1's minutes
+    ldi r17,1
+    call anWriteDigit     ; Write 1's minutes digit
+
+    ; Display Seconds (Digits 2 and 3)
+    mov r16,r5            ; Divide seconds by 10
+    ldi r18,10
+    call div88
+    ldi r16,'0'           ; Convert to ASCII
+    add r16,r0            ; Division answer is 10's seconds
+    ldi r17,2
+    call anWriteDigit     ; Write 10's seconds digit
+    ldi r16,'0'           ; Convert to ASCII
+    add r16,r2            ; Division remainder is 1's seconds
+    ldi r17,3
+    call anWriteDigit     ; Write 1's seconds digit
+    ret
