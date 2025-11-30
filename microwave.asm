@@ -53,9 +53,73 @@ tascii:  .byte 8;
 .cseg
 .org 0x000000
 
-jmp start
+; Interrupt Vector Table
+  jmp start
+  jmp ISR_INT0 ; External IRQ0 Handler
+  jmp ISR_INT1 ; External IRQ1 Handler
+  jmp ISR_PCINT0 ; PCINT0 Handler
+  jmp ISR_PCINT1 ; PCINT1 Handler
+  jmp ISR_PCINT2 ; PCINT2 Handler
+  jmp ISR_WDT ; Watchdog Timeout Handler
+  jmp ISR_TIM2_COMPA ; Timer2 CompareA Handler
+  jmp ISR_TIM2_COMPB ; Timer2 CompareB Handler
+  jmp ISR_TIM2_OVF ; Timer2 Overflow Handler
+  jmp ISR_TIM1_CAPT ; Timer1 Capture Handler
+  jmp ISR_TIM1_COMPA ; Timer1 CompareA Handler
+  jmp ISR_TIM1_COMPB ; Timer1 CompareB Handler
+  jmp ISR_TIM1_OVF ; Timer1 Overflow Handler
+  jmp ISR_TIM0_COMPA ; Timer0 CompareA Handler
+  jmp ISR_TIM0_COMPB ; Timer0 CompareB Handler
+  jmp ISR_TIM0_OVF ; Timer0 Overflow Handler
+  jmp ISR_SPI_STC ; SPI Transfer Complete Handler
+  jmp ISR_USART0_RXC ; USART0 RX Complete Handler
+  jmp ISR_USART0_UDRE ; USART0,UDR Empty Handler
+  jmp ISR_USART0_TXC ; USART0 TX Complete Handler
+  jmp ISR_ADC ; ADC Conversion Complete Handler
+  jmp ISR_EE_RDY ; EEPROM Ready Handler
+  jmp ISR_ANALOGC ; Analog comparator
+  jmp ISR_TWI ; 2-wire Serial Handler
+  jmp ISR_SPM_RDY ; SPM Ready Handler
 
 .org 0xF6
+
+; Dummy Interrupt routines
+  ISR_INT0: ; External IRQ0 Handler
+  ISR_INT1: ; External IRQ1 Handler
+  ISR_PCINT0: ; PCINT0 Handler
+  ISR_PCINT1: ; PCINT1 Handler
+  ISR_PCINT2: ; PCINT2 Handler
+  ISR_WDT: ; Watchdog Timeout Handler
+  ISR_TIM2_COMPA: ; Timer2 CompareA Handler
+  ISR_TIM2_COMPB: ; Timer2 CompareB Handler
+  ISR_TIM2_OVF: ; Timer2 Overflow Handler
+  ISR_TIM1_CAPT: ; Timer1 Capture Handler
+  ISR_TIM1_COMPB: ; Timer1 CompareB Handler
+  ISR_TIM1_OVF: ; Timer1 Overflow Handler
+  ISR_TIM0_COMPA: ; Timer0 CompareA Handler
+  ISR_TIM0_COMPB: ; Timer0 CompareB Handler
+  ISR_TIM0_OVF: ; Timer0 Overflow Handler
+  ISR_SPI_STC: ; SPI Transfer Complete Handler
+  ISR_USART0_RXC: ; USART0 RX Complete Handler
+  ISR_USART0_UDRE: ; USART0,UDR Empty Handler
+  ISR_USART0_TXC: ; USART0 TX Complete Handler
+  ISR_ADC: ; ADC Conversion Complete Handler
+  ISR_EE_RDY: ; EEPROM Ready Handler
+  ISR_ANALOGC: ; Analog comparator
+  ISR_TWI: ; 2-wire Serial Handler
+  ISR_SPM_RDY: ; SPM Ready Handler
+reti
+; Timer1 Interrupt CompareA Handler
+ISR_TIM1_COMPA:
+  push r0 ; Save Context
+  in r0,SREG ; Get Status register
+  push r0
+  ; Rest of ISR Code here
+  cbi PORTD,BEEPER
+  pop r0 ; Restore Status Register
+  out SREG,r0
+  pop r0
+reti
 
 cmsg1: .db " Time: ",0
 cmsg2: .db " Cook Time: ",0,0
@@ -168,6 +232,8 @@ idle:
   cbi PORTB, HEATER
   cbi PORTD, LIGHT
 
+  sbi PORTD, BEEPER
+
   ; STOP VALUE (Neutral)
   ldi r16, 0x17      ; Decimal 23 (approx 1.5ms pulse = STOP)
   out OCR0A, r16      ; Sending Neutral signal stops continuous servos
@@ -197,7 +263,8 @@ suspend:
 
   cbi PORTB, HEATER
   sbi PORTD, LIGHT
-  ldi r16, 0x17       ; Decimal 23 (approx 1.5ms pulse = STOP)
+
+  ldi r16, 0       ; Decimal 23 (approx 1.5ms pulse = STOP)
   out OCR0A, r16
 
   jmp loop
@@ -208,6 +275,9 @@ dataentry:						; data entry state tasks
   ; Turn off HEATER and LIGHT
   cbi PORTD, HEATER
   cbi PORTD, LIGHT
+
+  sbi PORTD, BEEPER
+
   ldi r16, 0
     out OCR0A, r16
 	lds	r26,seconds			; Get current cook time
@@ -273,7 +343,6 @@ ret
 
 updateTick:
     call delay100ms
-    cbi PORTD, BEEPER     ; Turn off beeper
     lds r22, sec1         ; Get minor tick time
     cpi r22, 10           ; 10 delays of 100 ms done?
     brne ut2
@@ -501,3 +570,5 @@ do_an_cook:
     ldi r17,3
     call anWriteDigit     ; Write 1's seconds digit
     ret
+
+
